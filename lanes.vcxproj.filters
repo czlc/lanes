@@ -1,22 +1,29 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="src\compat.c" />
-    <ClCompile Include="src\deep.c" />
     <ClCompile Include="src\keeper.c" />
     <ClCompile Include="src\lanes.c" />
+    <ClCompile Include="src\linda.c" />
     <ClCompile Include="src\threading.c" />
     <ClCompile Include="src\tools.c" />
     <ClCompile Include="src\universe.c" />
+    <ClCompile Include="src\cancel.c" />
+    <ClCompile Include="src\compat.c" />
+    <ClCompile Include="src\deep.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="src\cancel.h" />
     <ClInclude Include="src\compat.h" />
     <ClInclude Include="src\deep.h" />
     <ClInclude Include="src\keeper.h" />
     <ClInclude Include="src\lanes.h" />
+    <ClInclude Include="src\lanes_private.h" />
     <ClInclude Include="src\macros_and_utils.h" />
+    <ClInclude Include="src\platform.h" />
     <ClInclude Include="src\threading.h" />
+    <ClInclude Include="src\threading_osx.h" />
     <ClInclude Include="src\tools.h" />
+    <ClInclude Include="src\uniquekey.h" />
     <ClInclude Include="src\universe.h" />
   </ItemGroup>
 </Project>
