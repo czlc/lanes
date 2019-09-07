@@ -55,7 +55,7 @@ lanes.configure = function( settings_)
 	end
 	-- Configure called so remove metatable from lanes
 	setmetatable( lanes, nil)
-	-- 
+	--
 	-- Cache globals for code that might run under sandboxing
 	--
 	local assert = assert( assert)
@@ -76,8 +76,7 @@ lanes.configure = function( settings_)
 		track_lanes = false,
 		demote_full_userdata = nil,
 		verbose_errors = false,
-		-- LuaJIT provides a thread-unsafe allocator by default, so we need to protect it when used in parallel lanes
-		protect_allocator = (package.loaded.jit and jit.version) and true or false
+		allocator = nil
 	}
 	local boolean_param_checker = function( val_)
 		-- non-'boolean-false' should be 'boolean-true' or nil
@@ -90,7 +89,10 @@ lanes.configure = function( settings_)
 			return type( val_) == "number" and val_ > 0
 		end,
 		with_timers = boolean_param_checker,
-		protect_allocator = boolean_param_checker,
+		allocator = function( val_)
+			-- can be nil, "protected", or a function
+			return val_ and (type( val_) == "function" or val_ == "protected") or true
+		end,
 		on_state_create = function( val_)
 			-- on_state_create may be nil or a function
 			return val_ and type( val_) == "function" or true
@@ -112,6 +114,12 @@ lanes.configure = function( settings_)
 		local settings = {}
 		if type( settings_) ~= "table" then
 			error "Bad parameter #1 to lanes.configure(), should be a table"
+		end
+		-- any setting unknown to Lanes raises an error
+		for setting, _ in pairs( settings_) do
+			if not param_checkers[setting] then
+			error( "Unknown parameter '" .. setting .. "' in configure options")
+			end
 		end
 		-- any setting not present in the provided parameters takes the default value
 		for key, checker in pairs( param_checkers) do
@@ -138,7 +146,7 @@ lanes.configure = function( settings_)
 		author= "Asko Kauppi <akauppi@gmail.com>, Benoit Germain <bnt.germain@gmail.com>",
 		description= "Running multiple Lua states in parallel",
 		license= "MIT/X11",
-		copyright= "Copyright (c) 2007-10, Asko Kauppi; (c) 2011-17, Benoit Germain",
+		copyright= "Copyright (c) 2007-10, Asko Kauppi; (c) 2011-19, Benoit Germain",
 		version = assert( core.version)
 	}
 
@@ -190,13 +198,6 @@ lanes.configure = function( settings_)
 	--
 	-- 'opt': .priority:  int (-3..+3) smaller is lower priority (0 = default)
 	--
-	--	      .cancelstep: bool | uint
-	--            false: cancellation check only at pending Linda operations
-	--                   (send/receive) so no runtime performance penalty (default)
-	--            true:  adequate cancellation check (same as 100)
-	--            >0:    cancellation check every x Lua lines (small number= faster
-	--                   reaction but more performance overhead)
-	--
 	--        .globals:  table of globals to set for a new thread (passed by value)
 	--
 	--        .required: table of packages to require
@@ -237,10 +238,6 @@ lanes.configure = function( settings_)
 		priority = function( v_)
 			local tv = type( v_)
 			return (tv == "number") and v_ or raise_option_error( "priority", tv, v_)
-		end,
-		cancelstep = function( v_)
-			local tv = type( v_)
-			return (tv == "number") and v_ or (v_ == true) and 100 or (v_ == false) and 0 or raise_option_error( "cancelstep", tv, v_)
 		end,
 		globals = function( v_)
 			local tv = type( v_)
@@ -326,10 +323,10 @@ lanes.configure = function( settings_)
 			end
 		end
 
-		local cancelstep, priority, globals, package, required, gc_cb = opt.cancelstep, opt.priority, opt.globals, opt.package or package, opt.required, opt.gc_cb
+		local priority, globals, package, required, gc_cb = opt.priority, opt.globals, opt.package or package, opt.required, opt.gc_cb
 		return function( ...)
 			-- must pass functions args last else they will be truncated to the first one
-			return core_lane_new( func, libs, cancelstep, priority, globals, package, required, gc_cb, ...)
+			return core_lane_new( func, libs, priority, globals, package, required, gc_cb, ...)
 		end
 	end -- gen()
 
@@ -364,7 +361,7 @@ lanes.configure = function( settings_)
 	-- timer tables and sleep in between the timer events. All interaction with
 	-- the timer lane happens via a 'timer_gateway' Linda, which is common to
 	-- all that 'require "lanes"'.
-	-- 
+	--
 	-- Linda protocol to timer lane:
 	--
 	--  TGW_KEY: linda_h, key, [wakeup_at_secs], [repeat_secs]
@@ -395,7 +392,7 @@ lanes.configure = function( settings_)
 		local timer_body = function()
 			set_debug_threadname( "LanesTimer")
 			--
-			-- { [deep_linda_lightuserdata]= { [deep_linda_lightuserdata]=linda_h, 
+			-- { [deep_linda_lightuserdata]= { [deep_linda_lightuserdata]=linda_h,
 			--                                 [key]= { wakeup_secs [,period_secs] } [, ...] },
 			-- }
 			--
@@ -444,7 +441,7 @@ lanes.configure = function( settings_)
 					t1 = { [linda_deep] = linda}     -- proxy to use the Linda
 					collection[linda_deep] = t1
 				end
-			
+
 				if wakeup_at == nil then
 					-- Clear the timer
 					--
@@ -474,7 +471,7 @@ lanes.configure = function( settings_)
 						t2= {}
 						t1[key]= t2
 					end
-			
+
 					t2[1] = wakeup_at
 					t2[2] = period   -- can be 'nil'
 				end
@@ -499,12 +496,12 @@ lanes.configure = function( settings_)
 							local wakeup_at= t2[1]
 							local period= t2[2]     -- may be 'nil'
 
-							if wakeup_at <= now then    
+							if wakeup_at <= now then
 								local linda= t1[linda_deep]
 								assert(linda)
-			
+
 								linda:set( key, now )
-					
+
 								-- 'pairs()' allows the values to be modified (and even
 								-- removed) as far as keys are not touched
 
@@ -523,10 +520,10 @@ lanes.configure = function( settings_)
 									t2[1]= wakeup_at
 								end
 							end
-											
+
 							if wakeup_at and ((not next_wakeup) or (wakeup_at < next_wakeup)) then
 								next_wakeup= wakeup_at
-							end 
+							end
 						end
 					end -- t2 loop
 				end -- t1 loop
@@ -723,6 +720,7 @@ lanes.configure = function( settings_)
 	lanes.set_singlethreaded = core.set_singlethreaded
 	lanes.threads = core.threads or function() error "lane tracking is not available" end -- core.threads isn't registered if settings.track_lanes is false
 	lanes.set_thread_priority = core.set_thread_priority
+	lanes.set_thread_affinity = core.set_thread_affinity
 	lanes.timer = timer
 	lanes.timer_lane = timer_lane
 	lanes.timers = timers
